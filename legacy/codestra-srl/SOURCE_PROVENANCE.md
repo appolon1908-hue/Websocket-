@@ -4,7 +4,7 @@ This directory is a read-only source backup imported without modification from
 `Codestra-SRL/codestra-middleware` at commit
 `9118e5bc01f9ce4a52add8753c096d061cd84848`.
 
-- Imported at: `2026-09-04T18:42:33Z`
+- Imported at: `2026-09-04T18:43:39Z`
 - Server A legacy image observed before migration:
   `ghcr.io/codestra-srl/codestra-websocket-gateway@sha256:1c8f28d3627955c0d07f8a3f2e4187edb0770f3a9fc7cbc7dc9d819fcd255ffd`
 - Canonical mirrored digest location:
