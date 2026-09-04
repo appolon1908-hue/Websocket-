@@ -1,0 +1,6 @@
+# Generated Python artifacts must never enter the immutable legacy snapshot.
+__pycache__/
+*.py[cod]
+
+# Host-side cutover evidence is retained on Server A, not committed.
+websocket-authority-cutover/

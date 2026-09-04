@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-09-04T18:59:51Z",
+  "source": "ghcr.io/codestra-srl/codestra-websocket-gateway@sha256:1c8f28d3627955c0d07f8a3f2e4187edb0770f3a9fc7cbc7dc9d819fcd255ffd",
+  "destination_tag": "ghcr.io/appolon1908-hue/websocket-gateway:backup-codestra-srl-1c8f28d36279",
+  "destination_digest": "ghcr.io/appolon1908-hue/websocket-gateway@sha256:1c8f28d3627955c0d07f8a3f2e4187edb0770f3a9fc7cbc7dc9d819fcd255ffd",
+  "verified_digest": "sha256:1c8f28d3627955c0d07f8a3f2e4187edb0770f3a9fc7cbc7dc9d819fcd255ffd",
+  "source_repository_commit": "9118e5bc01f9ce4a52add8753c096d061cd84848",
+  "rebuilt": false,
+  "verification": "PASS"
+}
