@@ -7,6 +7,7 @@ on:
     paths:
       - .github/workflows/temporary-finalize-gateway.yml
       - scripts/finalize_gateway.py
+      - cmd/gateway/main_test.go
 
 permissions:
   contents: write
