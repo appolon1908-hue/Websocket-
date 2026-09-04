@@ -1,0 +1,79 @@
+name: temporary-materialize-gateway
+
+on:
+  push:
+    branches:
+      - feat/agent-realtime-gateway-issue-257
+    paths:
+      - .github/workflows/temporary-materialize-gateway.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: temporary-materialize-gateway
+  cancel-in-progress: false
+
+jobs:
+  materialize:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Check out exact branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: feat/agent-realtime-gateway-issue-257
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up exact Go toolchain
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: "1.25.0"
+          cache: false
+
+      - name: Verify, test, pin, and publish the gateway repair
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          tr -d '[:space:]' < .codestra/temporary-gateway-payload.b64 | base64 --decode > /tmp/websocket-payload.tgz
+          echo "abedf9ddd281e69f09a08b748f53735f3427713a2541f273e6612957ae91d543  /tmp/websocket-payload.tgz" | sha256sum --check -
+          tar -xzf /tmp/websocket-payload.tgz -C .
+          gofmt -w cmd/gateway/*.go
+          go mod tidy
+          go mod verify
+          go test -race -count=1 ./...
+          go vet ./...
+          CGO_ENABLED=0 go build -trimpath -o /tmp/gateway ./cmd/gateway
+
+          builder_digest="$(docker buildx imagetools inspect golang:1.25-alpine | awk '/^Digest:/ {print $2; exit}')"
+          runtime_digest="$(docker buildx imagetools inspect gcr.io/distroless/static-debian12:nonroot | awk '/^Digest:/ {print $2; exit}')"
+          test -n "${builder_digest}"
+          test -n "${runtime_digest}"
+          [[ "${builder_digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "${runtime_digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
+
+          cat > Dockerfile <<EOF
+          FROM golang:1.25-alpine@${builder_digest} AS build
+          WORKDIR /src
+          COPY go.mod go.sum ./
+          RUN go mod download
+          COPY cmd ./cmd
+          RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /gateway ./cmd/gateway
+
+          FROM gcr.io/distroless/static-debian12:nonroot@${runtime_digest}
+          COPY --from=build /gateway /gateway
+          USER 65532:65532
+          ENTRYPOINT ["/gateway"]
+          EOF
+          sed -i 's/^          //' Dockerfile
+
+          docker build --pull=false -t "codestra-agent-realtime:${GITHUB_SHA}" .
+          grep -R --fixed-strings "b39cdffe56a8185c91174228f0423df68b1137f34875f6ee52f9914f904bf724" cmd/gateway/main.go README.md
+          git diff --check
+
+          git config user.name "codestra-gateway-certifier"
+          git config user.email "actions@users.noreply.github.com"
+          git add go.mod go.sum README.md Dockerfile cmd/gateway/main.go cmd/gateway/nats_source.go cmd/gateway/main_test.go
+          git commit -m "fix(gateway): implement certified JetStream delivery"
+          git push origin HEAD:feat/agent-realtime-gateway-issue-257
