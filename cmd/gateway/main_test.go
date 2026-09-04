@@ -3,13 +3,14 @@ package main
 import (
   "net/http"
   "net/http/httptest"
+  "strings"
   "testing"
 )
 
 func TestOriginAndTicketFailClosed(t *testing.T){
   s:=&server{cfg:config{origins:map[string]struct{}{"https://odoo.codestra.co":{}},maxConnections:1},perAgent:map[string]int{}}
   for _,tc:=range []struct{name,origin,ticket string; want int}{
-    {"wrong origin","https://evil.example",string(make([]byte,32)),http.StatusForbidden},
+    {"wrong origin","https://evil.example",strings.Repeat("x",32),http.StatusForbidden},
     {"missing ticket","https://odoo.codestra.co","",http.StatusUnauthorized},
   }{
     t.Run(tc.name,func(t *testing.T){r:=httptest.NewRequest(http.MethodGet,"/ws/agent?ticket="+tc.ticket,nil);r.Header.Set("Origin",tc.origin);w:=httptest.NewRecorder();s.agent(w,r);if w.Code!=tc.want{t.Fatalf("got %d want %d",w.Code,tc.want)}})
