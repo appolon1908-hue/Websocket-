@@ -1,0 +1,288 @@
+name: Import and mirror Codestra-SRL WebSocket legacy
+
+on:
+  push:
+    branches:
+      - migration/codestra-srl-websocket-backup
+    paths:
+      - .github/workflows/import-codestra-legacy.yml
+      - scripts/import-codestra-legacy.sh
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: codestra-websocket-legacy-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  SOURCE_REPOSITORY: Codestra-SRL/codestra-middleware
+  SOURCE_COMMIT: 9118e5bc01f9ce4a52add8753c096d061cd84848
+  LEGACY_IMAGE: ghcr.io/codestra-srl/codestra-websocket-gateway@sha256:1c8f28d3627955c0d07f8a3f2e4187edb0770f3a9fc7cbc7dc9d819fcd255ffd
+  DESTINATION_TAG: ghcr.io/appolon1908-hue/websocket-gateway:backup-codestra-srl-1c8f28d36279
+  DESTINATION_DIGEST: ghcr.io/appolon1908-hue/websocket-gateway@sha256:1c8f28d3627955c0d07f8a3f2e4187edb0770f3a9fc7cbc7dc9d819fcd255ffd
+
+jobs:
+  import-source:
+    name: Import exact legacy source snapshot
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out migration branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - name: Import all tracked WebSocket assets
+        run: |
+          ./scripts/import-codestra-legacy.sh \
+            "${SOURCE_REPOSITORY}" \
+            "${SOURCE_COMMIT}" \
+            "${LEGACY_IMAGE}" \
+            "${DESTINATION_DIGEST}"
+
+      - name: Reject accidental secret material
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if find legacy/codestra-srl/source -type f \
+              \( -name '.env' -o -name '*.pem' -o -name '*.key' -o -name 'id_rsa*' \) \
+              -print -quit | grep -q .; then
+            echo "::error::The imported snapshot contains a forbidden secret-bearing filename."
+            exit 1
+          fi
+          if grep -RIlE \
+              '(BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|ghp_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,})' \
+              legacy/codestra-srl/source; then
+            echo "::error::The imported snapshot contains private-key or token material."
+            exit 1
+          fi
+
+      - name: Verify deterministic snapshot integrity
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          snapshot="legacy/codestra-srl/source"
+          test -s "${snapshot}/SELECTION.txt"
+          test -s "${snapshot}/MANIFEST.sha256"
+
+          (
+            cd "${snapshot}"
+            sha256sum --check MANIFEST.sha256
+          )
+
+          python3 - "${snapshot}" <<'PY'
+          from __future__ import annotations
+
+          from pathlib import Path
+          import sys
+
+          root = Path(sys.argv[1])
+          selection_file = root / "SELECTION.txt"
+          manifest_file = root / "MANIFEST.sha256"
+
+          selected = [
+              line.strip()
+              for line in selection_file.read_text(encoding="utf-8").splitlines()
+              if line.strip()
+          ]
+          manifest_paths = []
+          for raw_line in manifest_file.read_text(encoding="utf-8").splitlines():
+              if not raw_line.strip():
+                  continue
+              try:
+                  digest, relative = raw_line.split("  ", 1)
+              except ValueError as exc:
+                  raise SystemExit(f"invalid checksum line: {raw_line!r}") from exc
+              if len(digest) != 64 or any(ch not in "0123456789abcdef" for ch in digest):
+                  raise SystemExit(f"invalid SHA-256 digest: {digest!r}")
+              manifest_paths.append(relative)
+
+          metadata = {"MANIFEST.sha256", "SELECTION.txt"}
+          actual = sorted(
+              path.relative_to(root).as_posix()
+              for path in root.rglob("*")
+              if path.is_file() and path.relative_to(root).as_posix() not in metadata
+          )
+
+          if len(selected) != len(set(selected)):
+              raise SystemExit("SELECTION.txt contains duplicate paths")
+          if len(manifest_paths) != len(set(manifest_paths)):
+              raise SystemExit("MANIFEST.sha256 contains duplicate paths")
+          if sorted(selected) != sorted(manifest_paths):
+              missing = sorted(set(selected) - set(manifest_paths))
+              extra = sorted(set(manifest_paths) - set(selected))
+              raise SystemExit(
+                  f"selection/manifest mismatch: missing={missing}, extra={extra}"
+              )
+          if actual != sorted(selected):
+              missing = sorted(set(selected) - set(actual))
+              extra = sorted(set(actual) - set(selected))
+              raise SystemExit(
+                  f"snapshot file-set mismatch: missing={missing}, extra={extra}"
+              )
+
+          generated = [
+              relative
+              for relative in actual
+              if "__pycache__" in Path(relative).parts
+              or Path(relative).suffix in {".pyc", ".pyo"}
+          ]
+          if generated:
+              raise SystemExit(f"generated Python artifacts found: {generated}")
+
+          for path in sorted(root.rglob("*.py")):
+              compile(path.read_text(encoding="utf-8"), str(path), "exec")
+
+          print(
+              f"snapshot integrity PASS: {len(selected)} selected files, "
+              f"{len(manifest_paths)} checksums, zero generated artifacts"
+          )
+          PY
+
+          bash -n scripts/import-codestra-legacy.sh
+          bash -n scripts/server-a-switch-image-authority.sh
+
+      - name: Commit immutable source backup
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add legacy/codestra-srl deploy/image-authority.lock.yaml
+          if git diff --cached --quiet; then
+            echo "Legacy source snapshot already matches the pinned source commit."
+            exit 0
+          fi
+          git commit -m "chore(legacy): import Codestra-SRL WebSocket snapshot [legacy-import]"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+
+  mirror-image:
+    name: Mirror exact legacy image digest
+    needs: import-source
+    runs-on: ubuntu-latest
+    env:
+      CODESTRA_GHCR_TOKEN: ${{ secrets.CODESTRA_GHCR_TOKEN }}
+      CODESTRA_GHCR_USER: ${{ secrets.CODESTRA_GHCR_USER }}
+      GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      DEST_AUTH_FILE: /tmp/destination-auth.json
+      SOURCE_AUTH_FILE: /tmp/source-auth.json
+    steps:
+      - name: Check out latest migration branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - name: Install image-copy tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends skopeo
+
+      - name: Authenticate destination registry
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          printf '%s' "${GHCR_TOKEN}" |
+            skopeo login \
+              --authfile "${DEST_AUTH_FILE}" \
+              ghcr.io \
+              --username "${GITHUB_ACTOR}" \
+              --password-stdin
+
+      - name: Verify source access
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if skopeo inspect --raw "docker://${LEGACY_IMAGE}" >/tmp/legacy-manifest.json 2>/tmp/source-inspect.err; then
+            echo "Legacy image is readable without cross-organization credentials."
+            exit 0
+          fi
+
+          if [[ -z "${CODESTRA_GHCR_TOKEN}" ]]; then
+            cat /tmp/source-inspect.err
+            echo "::error::The Codestra-SRL package is not anonymously readable. Add repository secret CODESTRA_GHCR_TOKEN with read:packages permission, then rerun this workflow."
+            exit 78
+          fi
+
+          source_user="${CODESTRA_GHCR_USER:-appolon1908-hue}"
+          printf '%s' "${CODESTRA_GHCR_TOKEN}" |
+            skopeo login \
+              --authfile "${SOURCE_AUTH_FILE}" \
+              ghcr.io \
+              --username "${source_user}" \
+              --password-stdin
+          skopeo inspect \
+            --authfile "${SOURCE_AUTH_FILE}" \
+            --raw "docker://${LEGACY_IMAGE}" >/tmp/legacy-manifest.json
+
+      - name: Copy without rebuilding source content
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          copy_args=(
+            --all
+            --preserve-digests
+            --dest-authfile "${DEST_AUTH_FILE}"
+          )
+          if [[ -s "${SOURCE_AUTH_FILE}" ]]; then
+            copy_args+=(--src-authfile "${SOURCE_AUTH_FILE}")
+          fi
+          skopeo copy "${copy_args[@]}" \
+            "docker://${LEGACY_IMAGE}" \
+            "docker://${DESTINATION_TAG}"
+
+      - name: Verify exact destination digest
+        id: verify
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          expected="${LEGACY_IMAGE##*@}"
+          actual="$(
+            skopeo inspect \
+              --authfile "${DEST_AUTH_FILE}" \
+              --format '{{.Digest}}' \
+              "docker://${DESTINATION_TAG}"
+          )"
+          printf 'expected=%s\nactual=%s\n' "${expected}" "${actual}"
+          [[ "${actual}" == "${expected}" ]] || {
+            echo "::error::Mirrored image digest mismatch."
+            exit 1
+          }
+          echo "digest=${actual}" >>"${GITHUB_OUTPUT}"
+
+      - name: Record mirror evidence
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git pull --ff-only origin "${GITHUB_REF_NAME}"
+          mkdir -p evidence
+          generated_at="$(
+            jq -r '.generated_at // empty' evidence/legacy-image-mirror.json \
+              2>/dev/null || true
+          )"
+          if [[ -z "${generated_at}" ]]; then
+            generated_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          fi
+          cat >evidence/legacy-image-mirror.json <<EOF
+          {
+            "schema_version": 1,
+            "generated_at": "${generated_at}",
+            "source": "${LEGACY_IMAGE}",
+            "destination_tag": "${DESTINATION_TAG}",
+            "destination_digest": "${DESTINATION_DIGEST}",
+            "verified_digest": "${{ steps.verify.outputs.digest }}",
+            "source_repository_commit": "${SOURCE_COMMIT}",
+            "rebuilt": false,
+            "verification": "PASS"
+          }
+          EOF
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add evidence/legacy-image-mirror.json
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(evidence): record exact legacy image mirror [skip ci]"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
