@@ -52,7 +52,7 @@ func main() {
 	mux.HandleFunc("GET /version", s.version)
 	mux.HandleFunc("GET /metrics", s.metrics)
 	mux.HandleFunc("GET /ws/agent", s.agent)
-	h := securityHeaders(limitBody(mux, 8<<10))
+	h := securityHeaders(limitBody(mux))
 	httpServer := &http.Server{Addr: cfg.listen, Handler: h, ReadHeaderTimeout: 5*time.Second, IdleTimeout: 75*time.Second, MaxHeaderBytes: 16<<10}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM); defer stop()
 	go func(){ <-ctx.Done(); shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second); defer cancel(); _ = httpServer.Shutdown(shutdown) }()
