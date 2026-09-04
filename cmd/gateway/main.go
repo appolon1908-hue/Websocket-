@@ -22,7 +22,7 @@ import (
 	"github.com/coder/websocket"
 )
 
-const contractDigest = "daebae72a76b347de66318c7b83ca86703192f09ab44eb14ca3c32603251222b"
+const contractDigest = "0f3d217399472073f1bf5fbe250a054ae86d963eebca33c517d02b1b7d28bba6"
 
 type config struct {
 	listen, middlewareURL, serviceToken, sourceSHA, imageDigest string
