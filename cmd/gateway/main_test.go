@@ -41,6 +41,36 @@ func TestVersionPinsContract(t *testing.T) {
 		t.Fatal(w.Body.String())
 	}
 }
+
+func TestReadinessRequiresMiddleware(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		upstream   int
+		draining   bool
+		wantStatus int
+	}{
+		{"middleware ready", http.StatusOK, false, http.StatusOK},
+		{"middleware unavailable", http.StatusServiceUnavailable, false, http.StatusServiceUnavailable},
+		{"gateway draining", http.StatusOK, true, http.StatusServiceUnavailable},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Header.Get("Authorization") != "Bearer service" {
+					t.Fatal("missing service authorization")
+				}
+				w.WriteHeader(tc.upstream)
+			}))
+			defer upstream.Close()
+			s := newServer(config{middlewareURL: upstream.URL, serviceToken: "service", maxConnections: 1}, upstream.Client())
+			s.draining.Store(tc.draining)
+			w := httptest.NewRecorder()
+			s.ready(w, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+			if w.Code != tc.wantStatus {
+				t.Fatalf("got %d want %d", w.Code, tc.wantStatus)
+			}
+		})
+	}
+}
 func contains(s, sub string) bool {
 	for i := 0; i+len(sub) <= len(s); i++ {
 		if s[i:i+len(sub)] == sub {

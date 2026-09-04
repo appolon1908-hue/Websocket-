@@ -132,7 +132,30 @@ func env(k, d string) string {
 func (s *server) health(w http.ResponseWriter, _ *http.Request) {
 	jsonResponse(w, http.StatusOK, map[string]any{"status": "ok"})
 }
-func (s *server) ready(w http.ResponseWriter, _ *http.Request) {
+func (s *server) ready(w http.ResponseWriter, r *http.Request) {
+	if s.draining.Load() {
+		jsonResponse(w, http.StatusServiceUnavailable, map[string]any{"status": "draining", "external_effects": false})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.cfg.middlewareURL+"/readyz", nil)
+	if err == nil {
+		req.Header.Set("Authorization", "Bearer "+s.cfg.serviceToken)
+		var response *http.Response
+		response, err = s.client.Do(req)
+		if err == nil {
+			defer response.Body.Close()
+			_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
+			if response.StatusCode != http.StatusOK {
+				err = fmt.Errorf("middleware readiness status %d", response.StatusCode)
+			}
+		}
+	}
+	if err != nil {
+		jsonResponse(w, http.StatusServiceUnavailable, map[string]any{"status": "not_ready", "dependency": "middleware", "external_effects": false})
+		return
+	}
 	jsonResponse(w, http.StatusOK, map[string]any{"status": "ready", "external_effects": false})
 }
 func (s *server) version(w http.ResponseWriter, _ *http.Request) {
