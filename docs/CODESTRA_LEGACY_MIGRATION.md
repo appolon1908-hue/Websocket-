@@ -22,12 +22,20 @@ This change deliberately separates two releases:
 
 | Purpose | Immutable authority |
 |---|---|
-| Legacy source snapshot | `Codestra-SRL/codestra-middleware@9ba5645d0ae72be12087fb8d473101ab75405804` |
+| Legacy source snapshot | `Codestra-SRL/codestra-middleware@167bd6221911ec3fa988d719eb259646fa90f296` |
 | Server A image observed before migration | `ghcr.io/codestra-srl/codestra-websocket-gateway@sha256:9e4e7f562cd6d278635f33fe69af75e5e54fed86421a55a0d172e750c6522b9a` |
 | New mirrored location | `ghcr.io/appolon1908-hue/websocket-gateway@sha256:9e4e7f562cd6d278635f33fe69af75e5e54fed86421a55a0d172e750c6522b9a` |
 | Backup tag | `ghcr.io/appolon1908-hue/websocket-gateway:backup-codestra-srl-9e4e7f562cd6` |
 
 The tag is for human discovery only. Deployments must use the digest reference.
+
+The preliminary inventory recorded source candidate
+`9ba5645d0ae72be12087fb8d473101ab75405804`, but Git upload-pack rejected that
+object as unreachable on September 4, 2026. The import therefore pins the
+reachable protected-`main` commit above. That commit resolves to repository tree
+`8304f8685f97164775666ecdcfaba5e9e93f3577`, the tree inspected for this
+migration.
+
 
 ## Repository migration
 
