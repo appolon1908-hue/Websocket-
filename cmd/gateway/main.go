@@ -89,9 +89,19 @@ func (s *server) agent(w http.ResponseWriter,r *http.Request){
 	defer func(){s.mu.Lock(); delete(s.perAgent,key); s.mu.Unlock()}()
 	c,err:=websocket.Accept(w,r,&websocket.AcceptOptions{InsecureSkipVerify:true,CompressionMode:websocket.CompressionDisabled}); if err!=nil{return}; defer c.CloseNow()
 	s.active.Add(1); defer s.active.Add(-1)
-	ctx,cancel:=context.WithTimeout(r.Context(),75*time.Second); defer cancel()
 	c.SetReadLimit(8<<10)
-	for { _,data,err:=c.Read(ctx); if err!=nil{return}; ctx,cancel=context.WithTimeout(r.Context(),75*time.Second); if subtle.ConstantTimeCompare(data,[]byte("ping"))==1 { if c.Write(ctx,websocket.MessageText,[]byte("pong"))!=nil{return} } }
+	for {
+		ctx,cancel:=context.WithTimeout(r.Context(),75*time.Second)
+		_,data,err:=c.Read(ctx)
+		cancel()
+		if err!=nil{return}
+		if subtle.ConstantTimeCompare(data,[]byte("ping"))==1 {
+			ctx,cancel=context.WithTimeout(r.Context(),5*time.Second)
+			err=c.Write(ctx,websocket.MessageText,[]byte("pong"))
+			cancel()
+			if err!=nil{return}
+		}
+	}
 }
 
 func (s *server) consumeTicket(ctx context.Context,ticket string)(principal,error){
