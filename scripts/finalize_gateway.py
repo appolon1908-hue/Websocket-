@@ -161,7 +161,7 @@ func TestFinalProtectedContractDigest(t *testing.T) {
 def update_dockerfile() -> None:
     builder = require_digest("BUILDER_DIGEST")
     runtime = require_digest("RUNTIME_DIGEST")
-    content = f'''FROM golang:1.23-alpine@{builder} AS build
+    content = f'''FROM mirror.gcr.io/library/golang:1.23-alpine@{builder} AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
