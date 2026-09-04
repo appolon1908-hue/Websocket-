@@ -12,7 +12,7 @@ This change deliberately separates two releases:
 
 1. **Authority-only cutover.** Copy the existing Server A image manifest and
    layers without rebuilding, verify that the destination digest is exactly
-   `sha256:9e4e7f562cd6d278635f33fe69af75e5e54fed86421a55a0d172e750c6522b9a`,
+   `sha256:1c8f28d3627955c0d07f8a3f2e4187edb0770f3a9fc7cbc7dc9d819fcd255ffd`,
    then repoint Server A to the new registry path. Runtime code does not change.
 2. **New gateway promotion.** Build and certify the Go gateway from this
    repository at an exact protected commit, then promote that different digest
@@ -22,10 +22,10 @@ This change deliberately separates two releases:
 
 | Purpose | Immutable authority |
 |---|---|
-| Legacy source snapshot | `Codestra-SRL/codestra-middleware@167bd6221911ec3fa988d719eb259646fa90f296` |
-| Server A image observed before migration | `ghcr.io/codestra-srl/codestra-websocket-gateway@sha256:9e4e7f562cd6d278635f33fe69af75e5e54fed86421a55a0d172e750c6522b9a` |
-| New mirrored location | `ghcr.io/appolon1908-hue/websocket-gateway@sha256:9e4e7f562cd6d278635f33fe69af75e5e54fed86421a55a0d172e750c6522b9a` |
-| Backup tag | `ghcr.io/appolon1908-hue/websocket-gateway:backup-codestra-srl-9e4e7f562cd6` |
+| Legacy source snapshot | `Codestra-SRL/codestra-middleware@9118e5bc01f9ce4a52add8753c096d061cd84848` |
+| Server A image observed before migration | `ghcr.io/codestra-srl/codestra-websocket-gateway@sha256:1c8f28d3627955c0d07f8a3f2e4187edb0770f3a9fc7cbc7dc9d819fcd255ffd` |
+| New mirrored location | `ghcr.io/appolon1908-hue/websocket-gateway@sha256:1c8f28d3627955c0d07f8a3f2e4187edb0770f3a9fc7cbc7dc9d819fcd255ffd` |
+| Backup tag | `ghcr.io/appolon1908-hue/websocket-gateway:backup-codestra-srl-1c8f28d36279` |
 
 The tag is for human discovery only. Deployments must use the digest reference.
 

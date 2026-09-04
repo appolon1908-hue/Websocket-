@@ -5,11 +5,11 @@ canonical:
   image_repository: ghcr.io/appolon1908-hue/websocket-gateway
 legacy_backup:
   source_repository: https://github.com/Codestra-SRL/codestra-middleware
-  source_commit: 167bd6221911ec3fa988d719eb259646fa90f296
+  source_commit: 9118e5bc01f9ce4a52add8753c096d061cd84848
   source_snapshot: legacy/codestra-srl/source
-  source_image: ghcr.io/codestra-srl/codestra-websocket-gateway@sha256:9e4e7f562cd6d278635f33fe69af75e5e54fed86421a55a0d172e750c6522b9a
-  mirrored_tag: ghcr.io/appolon1908-hue/websocket-gateway:backup-codestra-srl-9e4e7f562cd6
-  mirrored_digest: ghcr.io/appolon1908-hue/websocket-gateway@sha256:9e4e7f562cd6d278635f33fe69af75e5e54fed86421a55a0d172e750c6522b9a
+  source_image: ghcr.io/codestra-srl/codestra-websocket-gateway@sha256:1c8f28d3627955c0d07f8a3f2e4187edb0770f3a9fc7cbc7dc9d819fcd255ffd
+  mirrored_tag: ghcr.io/appolon1908-hue/websocket-gateway:backup-codestra-srl-1c8f28d36279
+  mirrored_digest: ghcr.io/appolon1908-hue/websocket-gateway@sha256:1c8f28d3627955c0d07f8a3f2e4187edb0770f3a9fc7cbc7dc9d819fcd255ffd
 server_a:
   compose_project: middleware
   compose_service: websocket-gateway

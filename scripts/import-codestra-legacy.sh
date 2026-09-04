@@ -124,7 +124,7 @@ development, builds, fixes, and release evidence belong to
 
 The runtime image was not rebuilt during the authority migration. Server A must
 not be repointed until the destination registry reports the exact same
-\`sha256:9e4e7f562cd6d278635f33fe69af75e5e54fed86421a55a0d172e750c6522b9a\`
+\`sha256:1c8f28d3627955c0d07f8a3f2e4187edb0770f3a9fc7cbc7dc9d819fcd255ffd\`
 digest and the local cutover script verifies health and rollback.
 EOF
 
@@ -140,7 +140,7 @@ legacy_backup:
   source_commit: ${SOURCE_COMMIT}
   source_snapshot: legacy/codestra-srl/source
   source_image: ${LEGACY_IMAGE}
-  mirrored_tag: ghcr.io/appolon1908-hue/websocket-gateway:backup-codestra-srl-9e4e7f562cd6
+  mirrored_tag: ghcr.io/appolon1908-hue/websocket-gateway:backup-codestra-srl-1c8f28d36279
   mirrored_digest: ${DESTINATION_DIGEST}
 server_a:
   compose_project: middleware

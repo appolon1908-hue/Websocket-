@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-TARGET_IMAGE="${TARGET_IMAGE:-ghcr.io/appolon1908-hue/websocket-gateway@sha256:9e4e7f562cd6d278635f33fe69af75e5e54fed86421a55a0d172e750c6522b9a}"
-LEGACY_IMAGE="${LEGACY_IMAGE:-ghcr.io/codestra-srl/codestra-websocket-gateway@sha256:9e4e7f562cd6d278635f33fe69af75e5e54fed86421a55a0d172e750c6522b9a}"
+TARGET_IMAGE="${TARGET_IMAGE:-ghcr.io/appolon1908-hue/websocket-gateway@sha256:1c8f28d3627955c0d07f8a3f2e4187edb0770f3a9fc7cbc7dc9d819fcd255ffd}"
+LEGACY_IMAGE="${LEGACY_IMAGE:-ghcr.io/codestra-srl/codestra-websocket-gateway@sha256:1c8f28d3627955c0d07f8a3f2e4187edb0770f3a9fc7cbc7dc9d819fcd255ffd}"
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.yml}"
 SERVICE="${SERVICE:-websocket-gateway}"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:6101/healthz}"
