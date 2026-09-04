@@ -133,7 +133,7 @@ for path in sorted(root.rglob("*.py")):
     compile(path.read_text(encoding="utf-8"), str(path), "exec")
 PY_VALIDATE
 
-imported_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+source_commit_at="$(git -C "${SOURCE_DIR}" show -s --format='%cI' "${SOURCE_COMMIT}")"
 mkdir -p "${ROOT}/legacy/codestra-srl" "${ROOT}/deploy"
 cat >"${ROOT}/legacy/codestra-srl/SOURCE_PROVENANCE.md" <<EOF_PROVENANCE
 # Codestra-SRL WebSocket legacy backup
@@ -154,7 +154,7 @@ from \`${SOURCE_REPOSITORY}\` at commit \`${SOURCE_COMMIT}\`.
 
 ## Source snapshot integrity
 
-- Imported at: \`${imported_at}\`
+- Source commit timestamp: \`${source_commit_at}\`
 - Selection manifest: \`source/SELECTION.txt\`
 - Content checksums: \`source/MANIFEST.sha256\`
 

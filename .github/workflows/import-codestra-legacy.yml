@@ -259,7 +259,13 @@ jobs:
           set -Eeuo pipefail
           git pull --ff-only origin "${GITHUB_REF_NAME}"
           mkdir -p evidence
-          generated_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          generated_at="$(
+            jq -r '.generated_at // empty' evidence/legacy-image-mirror.json \
+              2>/dev/null || true
+          )"
+          if [[ -z "${generated_at}" ]]; then
+            generated_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          fi
           cat >evidence/legacy-image-mirror.json <<EOF
           {
             "schema_version": 1,
