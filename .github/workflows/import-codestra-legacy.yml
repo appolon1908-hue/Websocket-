@@ -60,6 +60,91 @@ jobs:
             exit 1
           fi
 
+      - name: Verify deterministic snapshot integrity
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          snapshot="legacy/codestra-srl/source"
+          test -s "${snapshot}/SELECTION.txt"
+          test -s "${snapshot}/MANIFEST.sha256"
+
+          (
+            cd "${snapshot}"
+            sha256sum --check MANIFEST.sha256
+          )
+
+          python3 - "${snapshot}" <<'PY'
+          from __future__ import annotations
+
+          from pathlib import Path
+          import sys
+
+          root = Path(sys.argv[1])
+          selection_file = root / "SELECTION.txt"
+          manifest_file = root / "MANIFEST.sha256"
+
+          selected = [
+              line.strip()
+              for line in selection_file.read_text(encoding="utf-8").splitlines()
+              if line.strip()
+          ]
+          manifest_paths = []
+          for raw_line in manifest_file.read_text(encoding="utf-8").splitlines():
+              if not raw_line.strip():
+                  continue
+              try:
+                  digest, relative = raw_line.split("  ", 1)
+              except ValueError as exc:
+                  raise SystemExit(f"invalid checksum line: {raw_line!r}") from exc
+              if len(digest) != 64 or any(ch not in "0123456789abcdef" for ch in digest):
+                  raise SystemExit(f"invalid SHA-256 digest: {digest!r}")
+              manifest_paths.append(relative)
+
+          metadata = {"MANIFEST.sha256", "SELECTION.txt"}
+          actual = sorted(
+              path.relative_to(root).as_posix()
+              for path in root.rglob("*")
+              if path.is_file() and path.relative_to(root).as_posix() not in metadata
+          )
+
+          if len(selected) != len(set(selected)):
+              raise SystemExit("SELECTION.txt contains duplicate paths")
+          if len(manifest_paths) != len(set(manifest_paths)):
+              raise SystemExit("MANIFEST.sha256 contains duplicate paths")
+          if sorted(selected) != sorted(manifest_paths):
+              missing = sorted(set(selected) - set(manifest_paths))
+              extra = sorted(set(manifest_paths) - set(selected))
+              raise SystemExit(
+                  f"selection/manifest mismatch: missing={missing}, extra={extra}"
+              )
+          if actual != sorted(selected):
+              missing = sorted(set(selected) - set(actual))
+              extra = sorted(set(actual) - set(selected))
+              raise SystemExit(
+                  f"snapshot file-set mismatch: missing={missing}, extra={extra}"
+              )
+
+          generated = [
+              relative
+              for relative in actual
+              if "__pycache__" in Path(relative).parts
+              or Path(relative).suffix in {".pyc", ".pyo"}
+          ]
+          if generated:
+              raise SystemExit(f"generated Python artifacts found: {generated}")
+
+          for path in sorted(root.rglob("*.py")):
+              compile(path.read_text(encoding="utf-8"), str(path), "exec")
+
+          print(
+              f"snapshot integrity PASS: {len(selected)} selected files, "
+              f"{len(manifest_paths)} checksums, zero generated artifacts"
+          )
+          PY
+
+          bash -n scripts/import-codestra-legacy.sh
+          bash -n scripts/server-a-switch-image-authority.sh
+
       - name: Commit immutable source backup
         shell: bash
         run: |
