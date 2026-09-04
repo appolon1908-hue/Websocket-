@@ -103,6 +103,8 @@ for relative in sorted(set(selected)):
         continue
     if src.name == ".env" or src.suffix in {".pem", ".key", ".p12", ".pfx"}:
         raise SystemExit(f"refusing secret-bearing file name: {relative}")
+    if "__pycache__" in src.parts or src.suffix == ".pyc":
+        raise SystemExit(f"refusing generated Python bytecode: {relative}")
     dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(src, dst)
 
@@ -122,7 +124,14 @@ for path in sorted(p for p in destination.rglob("*") if p.is_file()):
 )
 PY
 
-python3 -m compileall -q "${DEST_DIR}/websocket_gateway"
+python3 - "${DEST_DIR}" <<'PY_VALIDATE'
+from pathlib import Path
+import sys
+
+root = Path(sys.argv[1])
+for path in sorted(root.rglob("*.py")):
+    compile(path.read_text(encoding="utf-8"), str(path), "exec")
+PY_VALIDATE
 
 imported_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 mkdir -p "${ROOT}/legacy/codestra-srl" "${ROOT}/deploy"
