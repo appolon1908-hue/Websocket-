@@ -1,0 +1,25 @@
+schema_version: 1
+service: codestra-websocket-gateway
+canonical:
+  source_repository: https://github.com/appolon1908-hue/Websocket-
+  image_repository: ghcr.io/appolon1908-hue/websocket-gateway
+legacy_backup:
+  source_repository: https://github.com/Codestra-SRL/codestra-middleware
+  source_commit: 167bd6221911ec3fa988d719eb259646fa90f296
+  source_snapshot: legacy/codestra-srl/source
+  source_image: ghcr.io/codestra-srl/codestra-websocket-gateway@sha256:9e4e7f562cd6d278635f33fe69af75e5e54fed86421a55a0d172e750c6522b9a
+  mirrored_tag: ghcr.io/appolon1908-hue/websocket-gateway:backup-codestra-srl-9e4e7f562cd6
+  mirrored_digest: ghcr.io/appolon1908-hue/websocket-gateway@sha256:9e4e7f562cd6d278635f33fe69af75e5e54fed86421a55a0d172e750c6522b9a
+server_a:
+  compose_project: middleware
+  compose_service: websocket-gateway
+  observed_container: middleware_websocket-gateway_1
+  loopback_binding: 127.0.0.1:6101
+  health_url: http://127.0.0.1:6101/healthz
+policy:
+  legacy_role: rollback_only
+  rebuild_legacy_image: false
+  require_exact_digest_match: true
+  require_health_check: true
+  require_automatic_rollback: true
+  allow_new_gateway_promotion_in_this_change: false
