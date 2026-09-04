@@ -6,12 +6,37 @@ SOURCE_COMMIT="${2:?source commit is required}"
 LEGACY_IMAGE="${3:?legacy image digest reference is required}"
 DESTINATION_DIGEST="${4:?destination digest reference is required}"
 
+SERVER_A_HOST="${SERVER_A_HOST:-65.109.65.169}"
+SERVER_A_CONTAINER="${SERVER_A_CONTAINER:-codestra-websocket-gateway-gateway-1}"
+SERVER_A_COMPOSE_FILE="${SERVER_A_COMPOSE_FILE:-/home/codestra-admin/releases/middleware-69723c25a27e2a64cf55539c7d6df362a33579a4/websocket_gateway/compose.yaml}"
+RUNTIME_OBSERVED_AT="${RUNTIME_OBSERVED_AT:-2026-09-01T14:01:48Z}"
+
 ROOT="$(git rev-parse --show-toplevel)"
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "${WORKDIR}"' EXIT
 
 SOURCE_DIR="${WORKDIR}/source"
 DEST_DIR="${ROOT}/legacy/codestra-srl/source"
+
+[[ "${LEGACY_IMAGE}" == *@sha256:* ]] || {
+  echo "legacy image must be pinned by sha256 digest: ${LEGACY_IMAGE}" >&2
+  exit 1
+}
+[[ "${DESTINATION_DIGEST}" == *@sha256:* ]] || {
+  echo "destination image must be pinned by sha256 digest: ${DESTINATION_DIGEST}" >&2
+  exit 1
+}
+
+legacy_digest="${LEGACY_IMAGE##*@}"
+destination_digest="${DESTINATION_DIGEST##*@}"
+[[ "${legacy_digest}" == "${destination_digest}" ]] || {
+  echo "source/destination digest mismatch: ${legacy_digest} != ${destination_digest}" >&2
+  exit 1
+}
+
+digest_hex="${legacy_digest#sha256:}"
+destination_repository="${DESTINATION_DIGEST%@*}"
+backup_tag="${destination_repository}:backup-codestra-srl-${digest_hex:0:12}"
 
 git clone --quiet --filter=blob:none --no-checkout \
   "https://github.com/${SOURCE_REPOSITORY}.git" "${SOURCE_DIR}"
@@ -39,6 +64,8 @@ import sys
 source = Path(sys.argv[1]).resolve()
 destination = Path(sys.argv[2]).resolve()
 
+# These support files do not all contain "websocket" in their path, but were
+# part of the legacy gateway's release/certification surface when present.
 explicit = {
     "CANDIDATE_IMAGE.txt",
     "docker-compose.yml",
@@ -51,11 +78,7 @@ explicit = {
 tracked_raw = subprocess.check_output(
     ["git", "-C", str(source), "ls-files", "-z"]
 )
-tracked = [
-    entry.decode("utf-8")
-    for entry in tracked_raw.split(b"\0")
-    if entry
-]
+tracked = [entry.decode("utf-8") for entry in tracked_raw.split(b"\0") if entry]
 
 selected: list[str] = []
 for relative in tracked:
@@ -93,7 +116,6 @@ for path in sorted(p for p in destination.rglob("*") if p.is_file()):
     "\n".join(manifest_lines) + "\n",
     encoding="utf-8",
 )
-
 (destination / "SELECTION.txt").write_text(
     "\n".join(sorted(set(selected))) + "\n",
     encoding="utf-8",
@@ -103,58 +125,74 @@ PY
 python3 -m compileall -q "${DEST_DIR}/websocket_gateway"
 
 imported_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-cat >"${ROOT}/legacy/codestra-srl/SOURCE_PROVENANCE.md" <<EOF
+mkdir -p "${ROOT}/legacy/codestra-srl" "${ROOT}/deploy"
+cat >"${ROOT}/legacy/codestra-srl/SOURCE_PROVENANCE.md" <<EOF_PROVENANCE
 # Codestra-SRL WebSocket legacy backup
 
-This directory is a read-only source backup imported without modification from
-\`${SOURCE_REPOSITORY}\` at commit
-\`${SOURCE_COMMIT}\`.
+This directory is a read-only source snapshot imported without modification
+from \`${SOURCE_REPOSITORY}\` at commit \`${SOURCE_COMMIT}\`.
+
+## Server A runtime authority
+
+- Runtime inventory captured: \`${RUNTIME_OBSERVED_AT}\`
+- Server A host: \`${SERVER_A_HOST}\`
+- Observed container: \`${SERVER_A_CONTAINER}\`
+- Observed OCI revision: \`${SOURCE_COMMIT}\`
+- Observed legacy image: \`${LEGACY_IMAGE}\`
+- Exact mirrored digest: \`${DESTINATION_DIGEST}\`
+- Discovery-only backup tag: \`${backup_tag}\`
+- Image rebuilt during migration: \`false\`
+
+## Source snapshot integrity
 
 - Imported at: \`${imported_at}\`
-- Server A legacy image observed before migration:
-  \`${LEGACY_IMAGE}\`
-- Canonical mirrored digest location:
-  \`${DESTINATION_DIGEST}\`
 - Selection manifest: \`source/SELECTION.txt\`
 - Content checksums: \`source/MANIFEST.sha256\`
 
-The old Codestra-SRL source and image remain rollback-only authority. New
-development, builds, fixes, and release evidence belong to
+The Codestra-SRL repository and registry reference remain rollback-only backup
+authority. New development, builds, fixes, and release evidence belong to
 \`appolon1908-hue/Websocket-\`.
 
-The runtime image was not rebuilt during the authority migration. Server A must
-not be repointed until the destination registry reports the exact same
-\`sha256:1c8f28d3627955c0d07f8a3f2e4187edb0770f3a9fc7cbc7dc9d819fcd255ffd\`
-digest and the local cutover script verifies health and rollback.
-EOF
+Server A must not be repointed until \`evidence/legacy-image-mirror.json\`
+reports \`verification=PASS\` for \`${legacy_digest}\`. The host-side switch
+must then verify the running image ID, Docker health, application readiness,
+and automatic rollback.
+EOF_PROVENANCE
 
-mkdir -p "${ROOT}/deploy"
-cat >"${ROOT}/deploy/image-authority.lock.yaml" <<EOF
-schema_version: 1
+cat >"${ROOT}/deploy/image-authority.lock.yaml" <<EOF_LOCK
+schema_version: 2
 service: codestra-websocket-gateway
 canonical:
   source_repository: https://github.com/appolon1908-hue/Websocket-
-  image_repository: ghcr.io/appolon1908-hue/websocket-gateway
+  image_repository: ${destination_repository}
 legacy_backup:
+  role: rollback_only
   source_repository: https://github.com/${SOURCE_REPOSITORY}
   source_commit: ${SOURCE_COMMIT}
+  source_relation: observed_oci_revision
   source_snapshot: legacy/codestra-srl/source
   source_image: ${LEGACY_IMAGE}
-  mirrored_tag: ghcr.io/appolon1908-hue/websocket-gateway:backup-codestra-srl-1c8f28d36279
+  mirrored_tag: ${backup_tag}
   mirrored_digest: ${DESTINATION_DIGEST}
+  mirror_evidence: evidence/legacy-image-mirror.json
 server_a:
-  compose_project: middleware
-  compose_service: websocket-gateway
-  observed_container: middleware_websocket-gateway_1
-  loopback_binding: 127.0.0.1:6101
-  health_url: http://127.0.0.1:6101/healthz
+  host: ${SERVER_A_HOST}
+  runtime_observed_at: ${RUNTIME_OBSERVED_AT}
+  compose_project: codestra-websocket-gateway
+  compose_service: gateway
+  observed_container: ${SERVER_A_CONTAINER}
+  compose_file: ${SERVER_A_COMPOSE_FILE}
+  container_health_url: http://127.0.0.1:8080/healthz
+  container_readiness_url: http://127.0.0.1:8080/readyz
 policy:
-  legacy_role: rollback_only
   rebuild_legacy_image: false
   require_exact_digest_match: true
-  require_health_check: true
+  require_running_image_identity_match: true
+  require_container_health: true
+  require_application_readiness: true
   require_automatic_rollback: true
   allow_new_gateway_promotion_in_this_change: false
-EOF
+  delete_codestra_backup: false
+EOF_LOCK
 
 echo "Imported $(wc -l <"${DEST_DIR}/SELECTION.txt") tracked WebSocket assets."

@@ -1,25 +1,33 @@
-schema_version: 1
+schema_version: 2
 service: codestra-websocket-gateway
 canonical:
   source_repository: https://github.com/appolon1908-hue/Websocket-
   image_repository: ghcr.io/appolon1908-hue/websocket-gateway
 legacy_backup:
+  role: rollback_only
   source_repository: https://github.com/Codestra-SRL/codestra-middleware
   source_commit: 9118e5bc01f9ce4a52add8753c096d061cd84848
+  source_relation: observed_oci_revision
   source_snapshot: legacy/codestra-srl/source
   source_image: ghcr.io/codestra-srl/codestra-websocket-gateway@sha256:1c8f28d3627955c0d07f8a3f2e4187edb0770f3a9fc7cbc7dc9d819fcd255ffd
   mirrored_tag: ghcr.io/appolon1908-hue/websocket-gateway:backup-codestra-srl-1c8f28d36279
   mirrored_digest: ghcr.io/appolon1908-hue/websocket-gateway@sha256:1c8f28d3627955c0d07f8a3f2e4187edb0770f3a9fc7cbc7dc9d819fcd255ffd
+  mirror_evidence: evidence/legacy-image-mirror.json
 server_a:
-  compose_project: middleware
-  compose_service: websocket-gateway
-  observed_container: middleware_websocket-gateway_1
-  loopback_binding: 127.0.0.1:6101
-  health_url: http://127.0.0.1:6101/healthz
+  host: 65.109.65.169
+  runtime_observed_at: 2026-09-01T14:01:48Z
+  compose_project: codestra-websocket-gateway
+  compose_service: gateway
+  observed_container: codestra-websocket-gateway-gateway-1
+  compose_file: /home/codestra-admin/releases/middleware-69723c25a27e2a64cf55539c7d6df362a33579a4/websocket_gateway/compose.yaml
+  container_health_url: http://127.0.0.1:8080/healthz
+  container_readiness_url: http://127.0.0.1:8080/readyz
 policy:
-  legacy_role: rollback_only
   rebuild_legacy_image: false
   require_exact_digest_match: true
-  require_health_check: true
+  require_running_image_identity_match: true
+  require_container_health: true
+  require_application_readiness: true
   require_automatic_rollback: true
   allow_new_gateway_promotion_in_this_change: false
+  delete_codestra_backup: false

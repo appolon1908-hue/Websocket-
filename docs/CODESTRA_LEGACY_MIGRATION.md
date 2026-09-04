@@ -2,105 +2,102 @@
 
 ## Decision
 
-`appolon1908-hue/Websocket-` becomes the only source and image authority for
-future WebSocket development. The legacy implementation from
-`Codestra-SRL/codestra-middleware` is retained under
-`legacy/codestra-srl/` and the old registry reference is retained strictly as a
-rollback backup.
+`appolon1908-hue/Websocket-` is the forward source and image authority for the
+Codestra agent real-time WebSocket gateway. The existing Codestra-SRL source,
+registry reference, and Server A rollback evidence are retained as backup.
 
-This change deliberately separates two releases:
+This migration deliberately separates two releases:
 
-1. **Authority-only cutover.** Copy the existing Server A image manifest and
-   layers without rebuilding, verify that the destination digest is exactly
-   `sha256:1c8f28d3627955c0d07f8a3f2e4187edb0770f3a9fc7cbc7dc9d819fcd255ffd`,
-   then repoint Server A to the new registry path. Runtime code does not change.
-2. **New gateway promotion.** Build and certify the Go gateway from this
-   repository at an exact protected commit, then promote that different digest
-   in a separate release. This migration does not authorize that promotion.
+1. **Registry-authority cutover.** Mirror the exact image already running on
+   Server A without rebuilding it, verify the destination digest is identical,
+   and then recreate only the gateway service with the new registry reference.
+   Runtime code and data do not change.
+2. **New gateway promotion.** Build and certify the Go gateway in this
+   repository at an exact protected commit and promote that different digest in
+   a separate release. This migration does not authorize that promotion.
 
-## Pinned authorities
+## Reconciled Server A authority
+
+The production capability inventory captured on September 1, 2026 identifies:
+
+| Field | Reconciled value |
+|---|---|
+| Server A | `65.109.65.169` |
+| Compose project | `codestra-websocket-gateway` |
+| Service | `gateway` |
+| Container | `codestra-websocket-gateway-gateway-1` |
+| Deployment configuration | `/home/codestra-admin/releases/middleware-69723c25a27e2a64cf55539c7d6df362a33579a4/websocket_gateway/compose.yaml` |
+| Running image | `ghcr.io/codestra-srl/codestra-websocket-gateway@sha256:1c8f28d3627955c0d07f8a3f2e4187edb0770f3a9fc7cbc7dc9d819fcd255ffd` |
+| OCI source revision | `9118e5bc01f9ce4a52add8753c096d061cd84848` |
+
+The older `sha256:9e4e7f562cd6d278635f33fe69af75e5e54fed86421a55a0d172e750c6522b9a`
+coordinate belongs to an earlier immutable production tuple. It is not the most
+recent observed Server A runtime image and is therefore not the authority-only
+cutover target in this change.
+
+## Completed repository and image migration
+
+The following exact authorities are now recorded:
 
 | Purpose | Immutable authority |
 |---|---|
 | Legacy source snapshot | `Codestra-SRL/codestra-middleware@9118e5bc01f9ce4a52add8753c096d061cd84848` |
-| Server A image observed before migration | `ghcr.io/codestra-srl/codestra-websocket-gateway@sha256:1c8f28d3627955c0d07f8a3f2e4187edb0770f3a9fc7cbc7dc9d819fcd255ffd` |
-| New mirrored location | `ghcr.io/appolon1908-hue/websocket-gateway@sha256:1c8f28d3627955c0d07f8a3f2e4187edb0770f3a9fc7cbc7dc9d819fcd255ffd` |
-| Backup tag | `ghcr.io/appolon1908-hue/websocket-gateway:backup-codestra-srl-1c8f28d36279` |
+| Legacy rollback image | `ghcr.io/codestra-srl/codestra-websocket-gateway@sha256:1c8f28d3627955c0d07f8a3f2e4187edb0770f3a9fc7cbc7dc9d819fcd255ffd` |
+| New authoritative mirror | `ghcr.io/appolon1908-hue/websocket-gateway@sha256:1c8f28d3627955c0d07f8a3f2e4187edb0770f3a9fc7cbc7dc9d819fcd255ffd` |
+| Discovery-only backup tag | `ghcr.io/appolon1908-hue/websocket-gateway:backup-codestra-srl-1c8f28d36279` |
 
-The tag is for human discovery only. Deployments must use the digest reference.
+`evidence/legacy-image-mirror.json` records `verification=PASS`, the identical
+source/destination digest, and `rebuilt=false`. Deployments must use the digest
+reference; the tag is only for package discovery.
 
-The preliminary inventory recorded source candidate
-`9ba5645d0ae72be12087fb8d473101ab75405804`, but Git upload-pack rejected that
-object as unreachable on September 4, 2026. The import therefore pins the
-reachable protected-`main` commit above. That commit resolves to repository tree
-`8304f8685f97164775666ecdcfaba5e9e93f3577`, the tree inspected for this
-migration.
+The source importer preserves all tracked WebSocket paths available at the OCI
+revision, plus known support paths when present. It rejects symlinks, private
+keys, actual `.env` files, and common token signatures. The result is recorded
+in:
 
-
-## Repository migration
-
-The `Import and mirror Codestra-SRL WebSocket legacy` workflow:
-
-1. Checks out the pinned Codestra-SRL commit.
-2. Copies every tracked path whose name or directory contains `websocket`,
-   plus the known Compose, candidate-image, Stage 2/3 test, and SQL migration
-   support files.
-3. Rejects symlinks, private-key file types, actual `.env` files, and common
-   GitHub token/private-key signatures.
-4. Writes a selected-file inventory and SHA-256 manifest.
-5. Mirrors the old OCI image with `skopeo --preserve-digests`.
-6. Refuses success unless the new location reports the exact old digest.
-7. Commits machine-readable mirror evidence.
-
-When the source GHCR package is private, repository secrets
-`CODESTRA_GHCR_TOKEN` (`read:packages`) and optionally `CODESTRA_GHCR_USER`
-are required. The destination write uses this repository's `GITHUB_TOKEN`.
+- `legacy/codestra-srl/source/SELECTION.txt`
+- `legacy/codestra-srl/source/MANIFEST.sha256`
+- `legacy/codestra-srl/SOURCE_PROVENANCE.md`
+- `deploy/image-authority.lock.yaml`
 
 ## Server A cutover
 
-Do not edit the existing Compose file by hand. From Server A's Compose
-directory, run:
+The live host has not been changed by the repository migration. Server A is not
+currently enrolled in the connected server manager, so the exact host-side
+identity, health, readiness, and rollback gates must be executed on the host.
+
+From a trusted checkout of this branch:
 
 ```bash
-git clone https://github.com/appolon1908-hue/Websocket-.git
-cd Websocket-
 git checkout migration/codestra-srl-websocket-backup
-
-cd /path/to/server-a/middleware-compose
-/path/to/Websocket-/scripts/server-a-switch-image-authority.sh status
-/path/to/Websocket-/scripts/server-a-switch-image-authority.sh apply
+sudo ./scripts/server-a-switch-image-authority.sh status
+sudo ./scripts/server-a-switch-image-authority.sh apply
 ```
 
 The script refuses the cutover unless:
 
-- both registry references are digest-pinned;
-- both references have the same digest;
-- both pull to the same local image ID;
-- the running service currently uses that exact image ID;
-- the recreated service becomes healthy at `http://127.0.0.1:6101/healthz`;
-- the post-cutover container uses the expected image ID.
+- source and destination references are both digest-pinned;
+- both references use the exact same digest and local image ID;
+- the current container still resolves to the Codestra-SRL image ID;
+- the Compose project, service, container, and deployment file match Server A;
+- Docker reports the recreated container healthy;
+- `/readyz` succeeds from inside the container;
+- the post-cutover container reports the exact appolon1908-hue digest reference.
 
-On a failed health or identity check, it automatically recreates the service
-with the Codestra-SRL digest. Manual rollback is:
+A failed identity, health, or readiness check automatically recreates the
+service using the Codestra-SRL digest. Manual rollback is:
 
 ```bash
-/path/to/Websocket-/scripts/server-a-switch-image-authority.sh rollback
+sudo ./scripts/server-a-switch-image-authority.sh rollback
 ```
 
-Cutover evidence is stored under `websocket-authority-cutover/<UTC timestamp>/`
-beside the Compose project unless `STATE_ROOT` is overridden.
+Evidence is stored under `websocket-authority-cutover/<UTC timestamp>/` unless
+`STATE_ROOT` is overridden.
 
-## Retirement rule
+## Backup retention
 
-Do not delete the Codestra-SRL image, source repository, local image, or
-rollback evidence until all of the following are true:
-
-- the mirrored digest has been independently pulled and verified;
-- the authority-only cutover has passed;
-- rollback has been rehearsed successfully;
-- the new Go gateway has its own immutable image, staging certification, and
-  production rollback proof;
-- the agreed retention window has elapsed.
-
-The legacy source is not an active development fork. Security fixes must be
-implemented in the new authority and released as a new digest.
+Do not delete the Codestra-SRL package, source repository, local image, or
+rollback evidence. Keep them until the registry-authority cutover and a manual
+rollback rehearsal both pass, and until the later Go gateway release has its
+own immutable build, staging certification, production canary, and rollback
+proof.
