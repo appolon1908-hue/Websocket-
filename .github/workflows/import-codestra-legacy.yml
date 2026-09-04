@@ -19,7 +19,7 @@ concurrency:
 
 env:
   SOURCE_REPOSITORY: Codestra-SRL/codestra-middleware
-  SOURCE_COMMIT: 9ba5645d0ae72be12087fb8d473101ab75405804
+  SOURCE_COMMIT: 167bd6221911ec3fa988d719eb259646fa90f296
   LEGACY_IMAGE: ghcr.io/codestra-srl/codestra-websocket-gateway@sha256:9e4e7f562cd6d278635f33fe69af75e5e54fed86421a55a0d172e750c6522b9a
   DESTINATION_TAG: ghcr.io/appolon1908-hue/websocket-gateway:backup-codestra-srl-9e4e7f562cd6
   DESTINATION_DIGEST: ghcr.io/appolon1908-hue/websocket-gateway@sha256:9e4e7f562cd6d278635f33fe69af75e5e54fed86421a55a0d172e750c6522b9a
