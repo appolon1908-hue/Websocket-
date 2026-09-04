@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-09-04T18:50:00Z",
+  "server_a": "65.109.65.169",
+  "container": "codestra-websocket-gateway-gateway-1",
+  "current_registry_authority": "ghcr.io/codestra-srl/codestra-websocket-gateway",
+  "target_registry_authority": "ghcr.io/appolon1908-hue/websocket-gateway",
+  "digest": "sha256:1c8f28d3627955c0d07f8a3f2e4187edb0770f3a9fc7cbc7dc9d819fcd255ffd",
+  "image_mirror": "PASS",
+  "runtime_cutover": "NOT_EXECUTED",
+  "rollback_rehearsal": "NOT_EXECUTED",
+  "reason": "Server A is not enrolled in the connected server manager; no host mutation was attempted.",
+  "codestra_backup_retained": true
+}
