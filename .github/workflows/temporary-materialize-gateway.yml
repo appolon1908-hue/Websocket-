@@ -37,11 +37,20 @@ jobs:
         run: |
           set -Eeuo pipefail
 
-          # The reviewed archive is immutable by digest. Strip only bytes that
-          # are outside the RFC 4648 base64 alphabet before decoding; the
-          # archive checksum below remains the authority.
-          LC_ALL=C tr -cd 'A-Za-z0-9+/=' < .codestra/temporary-gateway-payload.b64 \
-            | base64 --decode > /tmp/websocket-payload.tgz
+          # Normalize only transport encoding. The immutable archive checksum
+          # below—not the staged base64 text—remains the source authority.
+          python3 - <<'PY'
+          import base64
+          import re
+          from pathlib import Path
+
+          raw = Path('.codestra/temporary-gateway-payload.b64').read_bytes()
+          clean = re.sub(rb'[^A-Za-z0-9+/=]', b'', raw).replace(b'=', b'')
+          clean += b'=' * ((-len(clean)) % 4)
+          archive = base64.b64decode(clean, validate=True)
+          Path('/tmp/websocket-payload.tgz').write_bytes(archive)
+          print(f'normalized_base64_bytes={len(clean)} archive_bytes={len(archive)}')
+          PY
           echo "abedf9ddd281e69f09a08b748f53735f3427713a2541f273e6612957ae91d543  /tmp/websocket-payload.tgz" \
             | sha256sum --check -
           tar -xzf /tmp/websocket-payload.tgz -C .
