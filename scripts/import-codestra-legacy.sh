@@ -128,6 +128,7 @@ not be repointed until the destination registry reports the exact same
 digest and the local cutover script verifies health and rollback.
 EOF
 
+mkdir -p "${ROOT}/deploy"
 cat >"${ROOT}/deploy/image-authority.lock.yaml" <<EOF
 schema_version: 1
 service: codestra-websocket-gateway
