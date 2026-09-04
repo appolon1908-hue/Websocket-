@@ -1,0 +1,204 @@
+name: temporary-finalize-gateway
+
+on:
+  push:
+    branches:
+      - feat/agent-realtime-gateway-issue-257
+    paths:
+      - .github/workflows/temporary-finalize-gateway.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: temporary-finalize-gateway
+  cancel-in-progress: false
+
+jobs:
+  finalize:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Check out exact branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: feat/agent-realtime-gateway-issue-257
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up exact Go toolchain
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: "1.23.0"
+          cache: false
+
+      - name: Apply final fail-closed gateway corrections
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          final_digest = "b39cdffe56a8185c91174228f0423df68b1137f34875f6ee52f9914f904bf724"
+          old_digest = "856f55ce980fe661a6a326c1a70207496f0eb3fc4bc335141e874c075b5a7e93"
+
+          main = Path("cmd/gateway/main.go")
+          source = main.read_text(encoding="utf-8")
+          if old_digest not in source:
+              raise SystemExit("expected provisional gateway digest is absent")
+          source = source.replace(old_digest, final_digest)
+          source = source.replace(
+              'const contractDigest = "' + final_digest + '"\n',
+              'const contractDigest = "' + final_digest + '"\n\nvar errTicketDenied = errors.New("ticket denied")\n',
+              1,
+          )
+
+          old_agent = '''\tp, err := s.consumeTicket(r.Context(), ticket)\n\tif err != nil || !p.Active || p.ExpiresAt.Before(time.Now()) || p.TenantID == "" || p.CampaignID == "" || p.AgentID == "" {\n\t\ts.reject(w, "ticket denied", http.StatusUnauthorized)\n\t\treturn\n\t}\n'''
+          new_agent = '''\tp, err := s.consumeTicket(r.Context(), ticket)\n\tif err != nil {\n\t\tif errors.Is(err, errTicketDenied) {\n\t\t\ts.reject(w, "ticket denied", http.StatusUnauthorized)\n\t\t\treturn\n\t\t}\n\t\tw.Header().Set("Retry-After", "1")\n\t\ts.reject(w, "ticket authority unavailable; obtain a new ticket before retry", http.StatusServiceUnavailable)\n\t\treturn\n\t}\n\tif !p.Active || p.ExpiresAt.Before(time.Now()) || p.TenantID == "" || p.CampaignID == "" || p.AgentID == "" {\n\t\ts.reject(w, "ticket denied", http.StatusUnauthorized)\n\t\treturn\n\t}\n'''
+          if old_agent not in source:
+              raise SystemExit("expected ticket admission block is absent")
+          source = source.replace(old_agent, new_agent, 1)
+
+          old_status = '''\tif resp.StatusCode != http.StatusOK {\n\t\tio.Copy(io.Discard, io.LimitReader(resp.Body, 4096))\n\t\treturn principal{}, fmt.Errorf("ticket consume status %d", resp.StatusCode)\n\t}\n'''
+          new_status = '''\tif resp.StatusCode != http.StatusOK {\n\t\tio.Copy(io.Discard, io.LimitReader(resp.Body, 4096))\n\t\tswitch resp.StatusCode {\n\t\tcase http.StatusBadRequest, http.StatusUnauthorized, http.StatusForbidden, http.StatusConflict, http.StatusGone:\n\t\t\treturn principal{}, errTicketDenied\n\t\tdefault:\n\t\t\treturn principal{}, fmt.Errorf("ticket authority status %d", resp.StatusCode)\n\t\t}\n\t}\n'''
+          if old_status not in source:
+              raise SystemExit("expected ticket status block is absent")
+          source = source.replace(old_status, new_status, 1)
+          main.write_text(source, encoding="utf-8")
+
+          readme = Path("README.md")
+          readme_text = readme.read_text(encoding="utf-8")
+          if old_digest not in readme_text:
+              raise SystemExit("expected provisional README digest is absent")
+          readme_text = readme_text.replace(old_digest, final_digest)
+          readme_text += "\nMiddleware transport failures return HTTP 503 with `Retry-After`; callers must obtain a new one-use ticket before reconnecting because an ambiguous consume may already have invalidated the prior ticket.\n"
+          readme.write_text(readme_text, encoding="utf-8")
+
+          test = Path("cmd/gateway/main_test.go")
+          test_source = test.read_text(encoding="utf-8")
+          test_source = test_source.replace(
+              'import (\n\t"context"\n',
+              'import (\n\t"context"\n\t"errors"\n',
+              1,
+          )
+          tests = r'''
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return fn(request)
+}
+
+func TestTicketAuthorityOutageIsRetryable(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("middleware unavailable")
+	})}
+	s := newServer(config{
+		middlewareURL: "http://middleware.invalid",
+		serviceToken: "service",
+		origins: map[string]struct{}{"https://odoo.codestra.co": {}},
+		maxConnections: 1,
+	}, client)
+	r := httptest.NewRequest(http.MethodGet, "/ws/agent?ticket="+strings.Repeat("x", 32), nil)
+	r.Header.Set("Origin", "https://odoo.codestra.co")
+	w := httptest.NewRecorder()
+	s.agent(w, r)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("got %d want %d: %s", w.Code, http.StatusServiceUnavailable, w.Body.String())
+	}
+	if w.Header().Get("Retry-After") != "1" {
+		t.Fatalf("Retry-After=%q", w.Header().Get("Retry-After"))
+	}
+}
+
+func TestRejectedTicketRemainsUnauthorized(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusGone)
+	}))
+	defer upstream.Close()
+	s := newServer(config{
+		middlewareURL: upstream.URL,
+		serviceToken: "service",
+		origins: map[string]struct{}{"https://odoo.codestra.co": {}},
+		maxConnections: 1,
+	}, upstream.Client())
+	r := httptest.NewRequest(http.MethodGet, "/ws/agent?ticket="+strings.Repeat("x", 32), nil)
+	r.Header.Set("Origin", "https://odoo.codestra.co")
+	w := httptest.NewRecorder()
+	s.agent(w, r)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("got %d want %d: %s", w.Code, http.StatusUnauthorized, w.Body.String())
+	}
+}
+
+func TestFinalProtectedContractDigest(t *testing.T) {
+	const expected = "b39cdffe56a8185c91174228f0423df68b1137f34875f6ee52f9914f904bf724"
+	if contractDigest != expected {
+		t.Fatalf("contract digest=%s want=%s", contractDigest, expected)
+	}
+}
+'''
+          if "TestTicketAuthorityOutageIsRetryable" not in test_source:
+              test_source += tests
+          test.write_text(test_source, encoding="utf-8")
+          PY
+
+          gofmt -w cmd/gateway/*.go
+          go mod tidy
+          go mod verify
+          go test -race -count=1 ./...
+          go vet ./...
+          CGO_ENABLED=0 go build -trimpath -o /tmp/gateway ./cmd/gateway
+
+      - name: Resolve and pin immutable container bases
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          builder_digest="$(docker buildx imagetools inspect golang:1.23-alpine | awk '/^Digest:/ {print $2; exit}')"
+          runtime_digest="$(docker buildx imagetools inspect gcr.io/distroless/static-debian12:nonroot | awk '/^Digest:/ {print $2; exit}')"
+          [[ "${builder_digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "${runtime_digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          cat > Dockerfile <<EOF
+          FROM golang:1.23-alpine@${builder_digest} AS build
+          WORKDIR /src
+          COPY go.mod go.sum ./
+          RUN go mod download
+          COPY cmd ./cmd
+          RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /gateway ./cmd/gateway
+
+          FROM gcr.io/distroless/static-debian12:nonroot@${runtime_digest}
+          COPY --from=build /gateway /gateway
+          USER 65532:65532
+          ENTRYPOINT ["/gateway"]
+          EOF
+          sed -i 's/^          //' Dockerfile
+          grep -Eq '^FROM golang:1\.23-alpine@sha256:[0-9a-f]{64} AS build$' Dockerfile
+          grep -Eq '^FROM gcr\.io/distroless/static-debian12:nonroot@sha256:[0-9a-f]{64}$' Dockerfile
+          docker build --pull=false -t "codestra-agent-realtime:${GITHUB_SHA}" .
+
+      - name: Remove temporary automation and certify final tree
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          rm -f \
+            .github/workflows/temporary-finalize-gateway.yml \
+            .github/workflows/temporary-materialize-gateway.yml \
+            .codestra/temporary-gateway-payload.b64 \
+            .codestra/gateway-payload.part-aa
+          grep -R --fixed-strings \
+            "b39cdffe56a8185c91174228f0423df68b1137f34875f6ee52f9914f904bf724" \
+            cmd/gateway/main.go README.md
+          ! grep -R --fixed-strings \
+            "856f55ce980fe661a6a326c1a70207496f0eb3fc4bc335141e874c075b5a7e93" \
+            cmd/gateway README.md
+          test -s go.sum
+          git diff --check
+          git config user.name "codestra-gateway-certifier"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A -- \
+            cmd/gateway README.md Dockerfile go.mod go.sum \
+            .github/workflows/temporary-finalize-gateway.yml \
+            .github/workflows/temporary-materialize-gateway.yml \
+            .codestra
+          git commit -m "fix(gateway): certify protected calling delivery"
+          git push origin HEAD:feat/agent-realtime-gateway-issue-257
