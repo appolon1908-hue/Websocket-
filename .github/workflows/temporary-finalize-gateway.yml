@@ -33,16 +33,41 @@ jobs:
           go-version: "1.23.0"
           cache: false
 
-      - name: Resolve immutable container bases
+      - name: Resolve immutable container bases through Google registries
         shell: bash
         run: |
           set -Eeuo pipefail
-          builder_digest="$(docker buildx imagetools inspect golang:1.23-alpine | awk '/^Digest:/ {print $2; exit}')"
-          runtime_digest="$(docker buildx imagetools inspect gcr.io/distroless/static-debian12:nonroot | awk '/^Digest:/ {print $2; exit}')"
-          [[ "${builder_digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
-          [[ "${runtime_digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends skopeo jq
+
+          resolve_digest() {
+            local image="$1"
+            local digest=""
+            local attempt
+            for attempt in 1 2 3; do
+              digest="$(skopeo inspect --format '{{.Digest}}' "docker://${image}" 2>/tmp/skopeo-error || true)"
+              if [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+                printf '%s\n' "${digest}"
+                return 0
+              fi
+              digest="$(docker buildx imagetools inspect "${image}" 2>/tmp/buildx-error | awk '/^Digest:/ {print $2; exit}' || true)"
+              if [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+                printf '%s\n' "${digest}"
+                return 0
+              fi
+              sleep "$((attempt * 2))"
+            done
+            echo "Unable to resolve immutable digest for ${image}" >&2
+            cat /tmp/skopeo-error /tmp/buildx-error 2>/dev/null || true
+            return 1
+          }
+
+          builder_digest="$(resolve_digest mirror.gcr.io/library/golang:1.23-alpine)"
+          runtime_digest="$(resolve_digest gcr.io/distroless/static-debian12:nonroot)"
           echo "BUILDER_DIGEST=${builder_digest}" >> "${GITHUB_ENV}"
           echo "RUNTIME_DIGEST=${runtime_digest}" >> "${GITHUB_ENV}"
+          echo "builder=${builder_digest}"
+          echo "runtime=${runtime_digest}"
 
       - name: Apply and certify the final gateway tree
         shell: bash
@@ -58,7 +83,7 @@ jobs:
           docker build --pull=false -t "codestra-agent-realtime:${GITHUB_SHA}" .
           grep -R --fixed-strings "b39cdffe56a8185c91174228f0423df68b1137f34875f6ee52f9914f904bf724" cmd/gateway/main.go README.md
           ! grep -R --fixed-strings "856f55ce980fe661a6a326c1a70207496f0eb3fc4bc335141e874c075b5a7e93" cmd/gateway README.md
-          grep -Eq '^FROM golang:1\.23-alpine@sha256:[0-9a-f]{64} AS build$' Dockerfile
+          grep -Eq '^FROM mirror\.gcr\.io/library/golang:1\.23-alpine@sha256:[0-9a-f]{64} AS build$' Dockerfile
           grep -Eq '^FROM gcr\.io/distroless/static-debian12:nonroot@sha256:[0-9a-f]{64}$' Dockerfile
           test -s go.sum
           git diff --check
