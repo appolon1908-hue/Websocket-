@@ -137,7 +137,7 @@ func TestShutdownClosesUpgradedConnections(t *testing.T) {
 	streamStarted := make(chan struct{})
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/consume") {
-			jsonResponse(w, http.StatusOK, principal{Active: true, TenantID: "tenant-1", CampaignID: "campaign-1", AgentID: "agent-1", ExpiresAt: time.Now().Add(time.Minute)})
+			jsonResponse(w, http.StatusOK, principal{Active: true, TenantID: "tenant-1", CampaignID: "campaign-1", AgentID: "agent-1", Role: "telephony_agent", ExpiresAt: time.Now().Add(time.Minute)})
 			return
 		}
 		close(streamStarted)
