@@ -38,13 +38,18 @@ export class RealtimeClient {
     this.stopped = false;
     this.stateHandler(this.retries ? "Reconnecting" : "Connecting");
     this.evidenceHandler("ticket-requested");
-    const response = await fetch("/realtime-api/api/v1/realtime/sessions", {
-      method:"POST", credentials:"include", headers:{Accept:"application/json"},
-    });
-    if (!response.ok) throw new Error(`Realtime session denied (${response.status})`);
-    const session = await response.json() as RealtimeSession;
-    this.evidenceHandler("ticket-issued");
-    await this.open(session);
+    try {
+      const response = await fetch("/realtime-api/api/v1/realtime/sessions", {
+        method:"POST", credentials:"include", headers:{Accept:"application/json"},
+      });
+      if (!response.ok) throw new Error(`Realtime session denied (${response.status})`);
+      const session = await response.json() as RealtimeSession;
+      this.evidenceHandler("ticket-issued");
+      await this.open(session);
+    } catch (error) {
+      if (this.stopped) throw error;
+      this.scheduleReconnect();
+    }
   }
 
   private async open(session: RealtimeSession): Promise<void> {
