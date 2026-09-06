@@ -295,18 +295,24 @@ async def replay(pool: asyncpg.Pool, scope: dict[str, Any], last_event_id: str |
     if last_event_id:
         value = await pool.fetchval("SELECT ordinal FROM realtime_events WHERE event_id=$1", last_event_id)
         after = int(value or 0)
-    rows = await pool.fetch("""SELECT event_id,schema_version,event_type AS type,correlation_id,occurred_at AS timestamp,
-      tenant_id,business_unit_id,campaign_id,user_id,agent_id,call_id,sequence,payload FROM realtime_events
-      WHERE ordinal>$1 AND tenant_id=$2 AND business_unit_id=$3 AND user_id=$4 AND agent_id=$5
-        AND campaign_id=ANY($6::text[]) ORDER BY ordinal LIMIT 1000""",
-      after, scope["tenant_id"], scope["business_unit_id"], scope["user_id"], scope["agent_id"], scope["campaigns"])
     result = []
-    for row in rows:
-        document = dict(row)
-        if isinstance(document["payload"], str):
-            document["payload"] = json.loads(document["payload"])
-        document["timestamp"] = row["timestamp"].isoformat()
-        result.append(document)
+    while True:
+        rows = await pool.fetch("""SELECT ordinal,event_id,schema_version,event_type AS type,correlation_id,occurred_at AS timestamp,
+          tenant_id,business_unit_id,campaign_id,user_id,agent_id,call_id,sequence,payload FROM realtime_events
+          WHERE ordinal>$1 AND tenant_id=$2 AND business_unit_id=$3 AND user_id=$4 AND agent_id=$5
+            AND campaign_id=ANY($6::text[]) ORDER BY ordinal LIMIT 1000""",
+          after, scope["tenant_id"], scope["business_unit_id"], scope["user_id"], scope["agent_id"], scope["campaigns"])
+        if not rows:
+            break
+        for row in rows:
+            document = dict(row)
+            after = int(document.pop("ordinal"))
+            if isinstance(document["payload"], str):
+                document["payload"] = json.loads(document["payload"])
+            document["timestamp"] = row["timestamp"].isoformat()
+            result.append(document)
+        if len(rows) < 1000:
+            break
     return result
 
 
@@ -357,7 +363,15 @@ async def ws_agent(websocket: WebSocket) -> None:
             await connection.queue.put(event)
             REPLAYED.inc()
         while True:
-            message = await websocket.receive_json()
+            remaining = (scope["expires_at"] - now()).total_seconds()
+            if remaining <= 0:
+                await websocket.close(code=4401, reason="realtime session expired")
+                return
+            try:
+                message = await asyncio.wait_for(websocket.receive_json(), timeout=remaining)
+            except asyncio.TimeoutError:
+                await websocket.close(code=4401, reason="realtime session expired")
+                return
             if message.get("type") == "pong":
                 continue
             if message.get("type") == "disconnect":
@@ -368,7 +382,7 @@ async def ws_agent(websocket: WebSocket) -> None:
         if scope:
             DISCONNECTS.inc()
     finally:
-        if scope:
+        if scope and connection:
             await websocket.app.state.pool.execute("UPDATE realtime_sessions SET active_connection=false WHERE session_id=$1", scope["session_id"])
             connections.pop(str(scope["session_id"]), None)
             ACTIVE.dec()
