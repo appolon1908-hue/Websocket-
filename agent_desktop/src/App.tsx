@@ -111,7 +111,6 @@ export default function App() {
   useEffect(() => {
     void mockDesktopService.load().then(setData);
     const unsubscribe = phone.subscribe(setPhoneSnapshot);
-    void phone.initialize(remoteAudio.current ?? undefined).catch(error => setMessage(error instanceof Error ? error.message : "Phone initialization failed"));
     const refreshDevices = async () => {
       try {
         const permission = await microphonePermission();
@@ -128,6 +127,13 @@ export default function App() {
       void phone.destroy();
     };
   }, [phone]);
+
+  useEffect(() => {
+    if (!data || !remoteAudio.current) return;
+    void phone.initialize(remoteAudio.current).catch(error =>
+      setMessage(error instanceof Error ? error.message : "Phone initialization failed")
+    );
+  }, [data, phone]);
 
   if (!data) return <div className="loading">Loading staging desktop…</div>;
 
